@@ -250,7 +250,10 @@ class HTDSO(object):
         s=ba([0x02, 0x01, ch])
         self.transmit(s, 0x53)
         r=self.receive(s, 0x53)
-        slen=struct.unpack("<L", bytes(r[1:])+b"\x00")[0]
+        try:
+            slen=struct.unpack("<L", bytes(r[1:])+b"\x00")[0]
+        except struct.error:
+            io_check(False, "Invalid samples response (too short: %d bytes)." % len(r))
         sdata=self.bulk_input(s, 0x53, True, ch)
         io_check(len(sdata)==slen,
             ("Length of sample data received (%d) "+
@@ -355,6 +358,7 @@ class HTDSO(object):
     def reset(self):
         """ Reset scope to initial state. """
         self.transmit(b"\x7f", 0x43)
+        self.receive(b"\x7f", 0x43)
 
     # Button keycodes for simulated knob turns / presses
     BTN_CH1_MENU = 0x18
@@ -383,6 +387,7 @@ class HTDSO(object):
     BTN_F3 = 0x03
     BTN_F4 = 0x04
     BTN_F5 = 0x05
+    BTN_DEFAULT_SETUP = 0x15  # Factory default reset (all settings)
 
     VDIV_TABLE = [0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
 
@@ -396,6 +401,9 @@ class HTDSO(object):
             s=ba([0x13, keycode, 0x01])
             self.transmit(s, 0x53)
             self.receive(s, 0x53)
+            # Echo flush: the scope buffers button presses and only
+            # processes them when the next command arrives.
+            self.echo("flush")
             sleep(0.2)
 
     def _find_nearest_idx(self, table, value):
@@ -570,6 +578,26 @@ class HTDSO(object):
         else:
             self.press_button(self.BTN_CH2_POS_PRESS)
 
+    PROBE_TABLE = [1, 10, 100, 1000]
+
+    def set_probe(self, channel, probe):
+        """Set probe multiplier for channel (1 or 2) to 1, 10, 100, or 1000."""
+        io_check(channel in [1, 2], "Channel must be 1 or 2.")
+        io_check(probe in self.PROBE_TABLE,
+                 "Probe must be one of: 1, 10, 100, 1000.")
+        sets, _ = self.settings()
+        current = sets["VERT-CH%d-PROBE" % channel][0]
+        if current == probe:
+            return
+        current_idx = self.PROBE_TABLE.index(current)
+        target_idx = self.PROBE_TABLE.index(probe)
+        presses = (target_idx - current_idx) % len(self.PROBE_TABLE)
+        btn_menu = self.BTN_CH1_MENU if channel == 1 else self.BTN_CH2_MENU
+        self.press_button(btn_menu)
+        sleep(0.3)
+        self.press_button(self.BTN_F4, presses)
+        sleep(0.3)
+
     COUPLING_TABLE = ["DC", "AC", "GND"]
 
     def set_coupling(self, channel, mode):
@@ -585,11 +613,11 @@ class HTDSO(object):
         target_idx = self.COUPLING_TABLE.index(mode)
         current_idx = self.COUPLING_TABLE.index(current)
         presses = (target_idx - current_idx) % 3
-        # Open channel menu, then press F0 (Coupling) to cycle
+        # Open channel menu, then press F1 (Coupling) to cycle
         btn_menu = self.BTN_CH1_MENU if channel == 1 else self.BTN_CH2_MENU
         self.press_button(btn_menu)
         sleep(0.3)
-        self.press_button(self.BTN_F0, presses)
+        self.press_button(self.BTN_F1, presses)
         sleep(0.3)
 
     def enable_channel(self, channel, enable=True):

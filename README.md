@@ -51,8 +51,8 @@ Each sub-command has its own help page: `./dsoc <command> --help`
     ./dsoc ping                          # Test communication
     ./dsoc reset                         # Reset scope to defaults
     ./dsoc settings                      # Show current scope settings
-    ./dsoc samples -n 1 -o data.txt      # Get samples from CH1
-    ./dsoc samples -n 1 -r               # Raw ADC values only
+    ./dsoc samples 1 -o data.txt         # Get samples from CH1
+    ./dsoc samples 1 -r                  # Raw ADC values only
     ./dsoc screenshot output.png         # Save screenshot
 
 ### File system and shell access
@@ -62,15 +62,17 @@ Each sub-command has its own help page: `./dsoc <command> --help`
 
 ### Vertical controls
 
-    ./dsoc set-vdiv 1.0                  # Set CH1 to 1V/div
-    ./dsoc set-vdiv -n 2 0.1            # Set CH2 to 100mV/div
-    ./dsoc position 10                   # Move CH1 up 10 steps
-    ./dsoc position -n 2 -5             # Move CH2 down 5 steps
-    ./dsoc reset-position                # Reset CH1 position to zero
-    ./dsoc coupling dc                   # Set CH1 coupling to DC
-    ./dsoc coupling -n 2 ac             # Set CH2 coupling to AC
-    ./dsoc channel on                    # Enable CH1
-    ./dsoc channel -n 2 off             # Disable CH2
+    ./dsoc set-vdiv 1 1.0                # Set CH1 to 1V/div
+    ./dsoc set-vdiv 2 0.1               # Set CH2 to 100mV/div
+    ./dsoc position 1 10                 # Move CH1 up 10 steps
+    ./dsoc position 2 -5                 # Move CH2 down 5 steps
+    ./dsoc reset-position 1              # Reset CH1 position to zero
+    ./dsoc coupling 1 dc                 # Set CH1 coupling to DC
+    ./dsoc coupling 2 ac                 # Set CH2 coupling to AC
+    ./dsoc probe 1 1                     # Set CH1 probe to 1x
+    ./dsoc probe 2 10                    # Set CH2 probe to 10x
+    ./dsoc channel 1 on                  # Enable CH1
+    ./dsoc channel 2 off                 # Disable CH2
 
 ### Timebase
 
@@ -95,6 +97,27 @@ Each sub-command has its own help page: `./dsoc <command> --help`
 
     ./dsoc -c <command>                  # Show USB communication on stderr
     ./dsoc -v <command>                  # Verbose output
+
+Testing
+-------
+
+An end-to-end test suite is provided in `test_dsoc.py`. It requires a
+Hantek DSO5202B connected via USB with the udev rule installed (see
+Prerequisites above).
+
+Install test dependencies:
+
+    pip install pytest
+
+Run the full suite:
+
+    pytest test_dsoc.py -v --tb=short
+
+The tests cover USB communication, settings readback, waveform samples,
+screenshots, filesystem access, vertical/horizontal/trigger controls,
+panel lock, and scope reset. The scope is reset to factory defaults at
+the start of each session via the DEFAULT SETUP button, so prior scope
+state does not affect results.
 
 Limitations
 -----------

@@ -29,7 +29,13 @@ if __name__=="__main__":
             '--verbose', '-v', action='store_true',
             default=False, help='Be verbose about the results of commands.')
 
-        sp=ap.add_subparsers()
+        class HelpOnErrorParser(ArgumentParser):
+            def error(self, message):
+                self.print_help()
+                print('\nerror: ' + message)
+                exit(2)
+
+        sp=ap.add_subparsers(parser_class=HelpOnErrorParser)
 
         def do_ping(dso, args):
             res=dso.echo("PING")
@@ -160,8 +166,8 @@ be two-column ASCII data, with the first column being time in second and the
 second ADC values in volts.
 """)
         cmd_samples.add_argument(
-            '--channel', '-n', type=int, default=1, help="Number of channel"
-            " to get the samples from [1, 2]")
+            'channel', type=int, choices=[1, 2],
+            help="Channel number (1 or 2)")
         cmd_samples.add_argument(
             '--raw', '-r', action='store_true', default=False,
             help="Get just"
@@ -206,8 +212,8 @@ Output file name. Stdout is '-' (default).
 Set the volt/div for a channel. Valid values: 0.002, 0.005, 0.01, 0.02,
 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10.""")
         cmd_set_vdiv.add_argument(
-            '--channel', '-n', type=int, default=1,
-            help="Channel number [1, 2] (default: 1)")
+            'channel', type=int, choices=[1, 2],
+            help="Channel number (1 or 2)")
         cmd_set_vdiv.add_argument(
             'value', type=float,
             help="Volt/div value (e.g. 1.0 for 1V/div)")
@@ -305,8 +311,8 @@ Set the trigger coupling. Valid: dc, ac, noise, hf, lf.""")
         cmd_position=sp.add_parser("position", help="""
 Adjust vertical position (offset) for a channel.""")
         cmd_position.add_argument(
-            '--channel', '-n', type=int, default=1,
-            help="Channel number [1, 2] (default: 1)")
+            'channel', type=int, choices=[1, 2],
+            help="Channel number (1 or 2)")
         cmd_position.add_argument(
             'steps', type=int,
             help="Number of steps (positive=up, negative=down)")
@@ -318,8 +324,8 @@ Adjust vertical position (offset) for a channel.""")
         cmd_reset_pos=sp.add_parser("reset-position", help="""
 Reset vertical position for a channel to zero.""")
         cmd_reset_pos.add_argument(
-            '--channel', '-n', type=int, default=1,
-            help="Channel number [1, 2] (default: 1)")
+            'channel', type=int, choices=[1, 2],
+            help="Channel number (1 or 2)")
         cmd_reset_pos.set_defaults(func=do_reset_position)
 
         def do_coupling(dso, args):
@@ -328,12 +334,25 @@ Reset vertical position for a channel to zero.""")
         cmd_coupling=sp.add_parser("coupling", help="""
 Set input coupling for a channel.""")
         cmd_coupling.add_argument(
-            '--channel', '-n', type=int, default=1,
-            help="Channel number [1, 2] (default: 1)")
+            'channel', type=int, choices=[1, 2],
+            help="Channel number (1 or 2)")
         cmd_coupling.add_argument(
             'mode', choices=['dc', 'ac', 'gnd', 'DC', 'AC', 'GND'],
             help="Coupling mode")
         cmd_coupling.set_defaults(func=do_coupling)
+
+        def do_probe(dso, args):
+            dso.set_probe(args.channel, args.factor)
+            print("CH%d probe set to %dx" % (args.channel, args.factor))
+        cmd_probe=sp.add_parser("probe", help="""
+Set probe multiplier for a channel. Valid: 1, 10, 100, 1000.""")
+        cmd_probe.add_argument(
+            'channel', type=int, choices=[1, 2],
+            help="Channel number (1 or 2)")
+        cmd_probe.add_argument(
+            'factor', type=int, choices=[1, 10, 100, 1000],
+            help="Probe multiplier (1, 10, 100, or 1000)")
+        cmd_probe.set_defaults(func=do_probe)
 
         def do_channel(dso, args):
             enable = args.state.lower() in ['on', '1', 'enable']
@@ -342,8 +361,8 @@ Set input coupling for a channel.""")
         cmd_channel=sp.add_parser("channel", help="""
 Enable or disable a channel.""")
         cmd_channel.add_argument(
-            '--channel', '-n', type=int, default=1,
-            help="Channel number [1, 2] (default: 1)")
+            'channel', type=int, choices=[1, 2],
+            help="Channel number (1 or 2)")
         cmd_channel.add_argument(
             'state', choices=['on', 'off', 'enable', 'disable', '1', '0'],
             help="Channel state")
