@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # This file is part of dsoc.
 
 # dsoc is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@ if __name__=="__main__":
 
         def do_ping(dso, args):
             res=dso.echo("PING")
-            exit(not res=="PING")
+            exit(not res==b"PING")
 
         cmd_ping=sp.add_parser("ping", help="""
 Test two-way communication with scope. Return code of this command is zero
@@ -48,11 +48,11 @@ Initialize/reset scope to power-on defaults. """)
 
         def do_cat(dso, args):
             s=dso.get_file(args.filename)
-            of=stdout
-            if args.output!='-':
-                of=open(args.output, "w")
-            of.write(s)
-            of!=stdout and of.close()
+            if args.output=='-':
+                stdout.buffer.write(s)
+            else:
+                with open(args.output, "wb") as of:
+                    of.write(s)
         cmd_cat=sp.add_parser("cat", help=
                                    """
 Get a file from the scope's internal linux file system.
@@ -61,7 +61,7 @@ Get a file from the scope's internal linux file system.
             '--output', '-o', help="Output file name. Use '-' for"
             " stdout. That"
             " is also the default.", default='-')
-        
+
         cmd_cat.add_argument('filename',
                                   help='Name of file on DSO.')
         cmd_cat.set_defaults(func=do_cat)
@@ -69,9 +69,10 @@ Get a file from the scope's internal linux file system.
         def do_sh(dso, args):
             s=dso.command(" ".join(args.cmdstring))
             if args.output=='-':
-                stdout.write(s)
+                stdout.buffer.write(s)
             else:
-                open(args.output, "w").write(s)
+                with open(args.output, "wb") as of:
+                    of.write(s)
         cmd_sh=sp.add_parser("sh",
                                   help="""
 Execute a command on the scope. WARNING: This command is VERY DANGEROUS. It is
@@ -79,11 +80,11 @@ Execute a command on the scope. WARNING: This command is VERY DANGEROUS. It is
             filtered. You have been warned!""")
         cmd_sh.add_argument(
             '--output', '-o', help="File name for command result output. Use '-' for stdout (default)", default='-')
-        
+
         cmd_sh.add_argument('cmdstring', nargs='+',
                                   help='Command string to execute.')
         cmd_sh.set_defaults(func=do_sh)
-                
+
         def do_screenshot(dso, args):
             dso.screenshot(args.output)
         cmd_screenshot=sp.add_parser("screenshot", help="""
@@ -107,8 +108,8 @@ Duration of beep in milliseconds. Default is 100.""")
         cmd_beep.set_defaults(func=do_beep)
 
         def settings_out(of, s, prefix=""):
-            for k, v in sorted(s.iteritems()):
-                print>>of, prefix+("%25s %18s %s" % (k, v[0], v[1]))
+            for k, v in sorted(s.items()):
+                print(prefix+("%25s %18s %s" % (k, v[0], v[1])), file=of)
 
         def do_samples(dso, args):
             s=dso.samples(args.channel-1)
@@ -116,20 +117,20 @@ Duration of beep in milliseconds. Default is 100.""")
 
             if args.output!='-':
                 of=open(args.output, "w")
-            
+
             sets, ns=dso.settings()
             if not args.no_settings:
-                print>>of, "# dsoc sample dump for HANTEK/TEKWAY DSO"
+                print("# dsoc sample dump for HANTEK/TEKWAY DSO", file=of)
                 import time
-                print>>of, "# time %s | %10.1f" % (time.strftime(
+                print("# time %s | %10.1f" % (time.strftime(
                         "%Y-%m-%d %H:%M:%S %Z%z"),
-                                            time.time())
-                print>>of, "# sampled-channel ", args.channel
+                                            time.time()), file=of)
+                print("# sampled-channel ", args.channel, file=of)
                 settings_out(of, sets, "# ")
 
             if args.raw:
                 for y in s:
-                    print>>of, y
+                    print(y, file=of)
             else:
                 from numpy import array, linspace
                 yofs=-sets["VERT-CH%d-POS" % args.channel][0]
@@ -144,14 +145,15 @@ Duration of beep in milliseconds. Default is 100.""")
                     # enabled menu takes away 20% of space,
                     # affecting number of read out samples.
                     tend/=1.2
-                    
+
                 tnew=linspace(0, tend, len(ynew), endpoint=False)
-                
+
                 for t, y in zip(tnew, ynew):
-                    print>>of, "%15.9f %10g" % (t, y)
-                    
-            of!=stdout and of.close()
-            
+                    print("%15.9f %10g" % (t, y), file=of)
+
+            if of is not stdout:
+                of.close()
+
         cmd_samples=sp.add_parser("samples", help="""
 Acquire sample data from the scope. Unless selected otherwise, the output will
 be two-column ASCII data, with the first column being time in second and the
@@ -184,7 +186,8 @@ the output data.
                 of=open(args.output, "w")
 
             settings_out(of, s)
-            of!=stdout and of.close()
+            if of is not stdout:
+                of.close()
 
         cmd_settings=sp.add_parser("settings", help="""
 Get a description of the current settings from the scope as a list of keys and
@@ -195,7 +198,157 @@ Output file name. Stdout is '-' (default).
 """,
             default='-')
         cmd_settings.set_defaults(func=do_settings)
-        
+
+        def do_set_vdiv(dso, args):
+            dso.set_vdiv(args.channel, args.value)
+            print("CH%d V/div set to %g V" % (args.channel, args.value))
+        cmd_set_vdiv=sp.add_parser("set-vdiv", help="""
+Set the volt/div for a channel. Valid values: 0.002, 0.005, 0.01, 0.02,
+0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10.""")
+        cmd_set_vdiv.add_argument(
+            '--channel', '-n', type=int, default=1,
+            help="Channel number [1, 2] (default: 1)")
+        cmd_set_vdiv.add_argument(
+            'value', type=float,
+            help="Volt/div value (e.g. 1.0 for 1V/div)")
+        cmd_set_vdiv.set_defaults(func=do_set_vdiv)
+
+        def fmt_time(s):
+            if s < 1e-6: return "%.0f ns" % (s*1e9)
+            elif s < 1e-3: return "%.0f us" % (s*1e6)
+            elif s < 1: return "%.0f ms" % (s*1e3)
+            else: return "%.0f s" % s
+
+        def do_set_tdiv(dso, args):
+            dso.set_tdiv(args.value)
+            target_idx = dso._find_nearest_idx(dso.TDIV_TABLE, args.value)
+            actual = dso.TDIV_TABLE[target_idx]
+            print("Time/div set to %s" % fmt_time(actual))
+        cmd_set_tdiv=sp.add_parser("set-tdiv", help="""
+Set the time/div. Value in seconds (e.g. 0.001 for 1ms, 0.00005 for 50us).
+Snaps to nearest valid setting.""")
+        cmd_set_tdiv.add_argument(
+            'value', type=float,
+            help="Time/div in seconds (e.g. 0.001 for 1ms/div)")
+        cmd_set_tdiv.set_defaults(func=do_set_tdiv)
+
+        def do_set_trig_level(dso, args):
+            if args.voltage is not None:
+                dso.set_trig_voltage(args.voltage)
+                print("Trigger level set to %.3f V" % args.voltage)
+            else:
+                dso.set_trig_level(args.steps)
+                print("Trigger level adjusted by %+d steps" % args.steps)
+        cmd_trig_level=sp.add_parser("trig-level", help="""
+Set the trigger level. Use --voltage for absolute voltage, or pass
+a number of steps for relative adjustment.""")
+        trig_level_group=cmd_trig_level.add_mutually_exclusive_group(required=True)
+        trig_level_group.add_argument(
+            '--voltage', '-V', type=float, default=None,
+            help="Absolute trigger voltage (e.g. 0.5 for 500mV)")
+        trig_level_group.add_argument(
+            'steps', type=int, nargs='?', default=None,
+            help="Number of steps (positive=up, negative=down)")
+        cmd_trig_level.set_defaults(func=do_set_trig_level)
+
+        def do_trig_50(dso, args):
+            dso.trig_50pct()
+            print("Trigger level set to 50%%")
+        cmd_trig_50=sp.add_parser("trig-50", help="""
+Set trigger level to 50%% of the signal amplitude.""")
+        cmd_trig_50.set_defaults(func=do_trig_50)
+
+        def do_set_trig_mode(dso, args):
+            dso.set_trig_mode(args.mode)
+            print("Trigger mode set to %s" % args.mode)
+        cmd_trig_mode=sp.add_parser("trig-mode", help="""
+Set trigger mode to 'auto' or 'normal'.""")
+        cmd_trig_mode.add_argument(
+            'mode', choices=['auto', 'normal'],
+            help="Trigger mode")
+        cmd_trig_mode.set_defaults(func=do_set_trig_mode)
+
+        def do_set_trig_source(dso, args):
+            dso.set_trig_source(args.source)
+            print("Trigger source set to %s" % args.source.upper())
+        cmd_trig_source=sp.add_parser("trig-source", help="""
+Set the trigger source.""")
+        cmd_trig_source.add_argument(
+            'source', choices=['ch1', 'ch2', 'ext', 'ext/5', 'ac50',
+                               'CH1', 'CH2', 'EXT', 'EXT/5', 'AC50'],
+            help="Trigger source")
+        cmd_trig_source.set_defaults(func=do_set_trig_source)
+
+        def do_set_trig_slope(dso, args):
+            dso.set_trig_slope(args.slope)
+            print("Trigger slope set to %s" % args.slope)
+        cmd_trig_slope=sp.add_parser("trig-slope", help="""
+Set the trigger edge slope.""")
+        cmd_trig_slope.add_argument(
+            'slope', choices=['rising', 'falling'],
+            help="Trigger slope")
+        cmd_trig_slope.set_defaults(func=do_set_trig_slope)
+
+        def do_set_trig_coupling(dso, args):
+            dso.set_trig_coupling(args.coupling)
+            print("Trigger coupling set to %s" % args.coupling)
+        cmd_trig_coupling=sp.add_parser("trig-coupling", help="""
+Set the trigger coupling. Valid: dc, ac, noise, hf, lf.""")
+        cmd_trig_coupling.add_argument(
+            'coupling',
+            help="Trigger coupling (dc, ac, noise/noiserej, hf/hfrej, lf/lfrej)")
+        cmd_trig_coupling.set_defaults(func=do_set_trig_coupling)
+
+        def do_position(dso, args):
+            dso.set_position(args.channel, args.steps)
+            print("CH%d position adjusted by %+d steps" % (args.channel, args.steps))
+        cmd_position=sp.add_parser("position", help="""
+Adjust vertical position (offset) for a channel.""")
+        cmd_position.add_argument(
+            '--channel', '-n', type=int, default=1,
+            help="Channel number [1, 2] (default: 1)")
+        cmd_position.add_argument(
+            'steps', type=int,
+            help="Number of steps (positive=up, negative=down)")
+        cmd_position.set_defaults(func=do_position)
+
+        def do_reset_position(dso, args):
+            dso.reset_position(args.channel)
+            print("CH%d position reset to zero" % args.channel)
+        cmd_reset_pos=sp.add_parser("reset-position", help="""
+Reset vertical position for a channel to zero.""")
+        cmd_reset_pos.add_argument(
+            '--channel', '-n', type=int, default=1,
+            help="Channel number [1, 2] (default: 1)")
+        cmd_reset_pos.set_defaults(func=do_reset_position)
+
+        def do_coupling(dso, args):
+            dso.set_coupling(args.channel, args.mode)
+            print("CH%d coupling set to %s" % (args.channel, args.mode.upper()))
+        cmd_coupling=sp.add_parser("coupling", help="""
+Set input coupling for a channel.""")
+        cmd_coupling.add_argument(
+            '--channel', '-n', type=int, default=1,
+            help="Channel number [1, 2] (default: 1)")
+        cmd_coupling.add_argument(
+            'mode', choices=['dc', 'ac', 'gnd', 'DC', 'AC', 'GND'],
+            help="Coupling mode")
+        cmd_coupling.set_defaults(func=do_coupling)
+
+        def do_channel(dso, args):
+            enable = args.state.lower() in ['on', '1', 'enable']
+            dso.enable_channel(args.channel, enable)
+            print("CH%d %s" % (args.channel, "enabled" if enable else "disabled"))
+        cmd_channel=sp.add_parser("channel", help="""
+Enable or disable a channel.""")
+        cmd_channel.add_argument(
+            '--channel', '-n', type=int, default=1,
+            help="Channel number [1, 2] (default: 1)")
+        cmd_channel.add_argument(
+            'state', choices=['on', 'off', 'enable', 'disable', '1', '0'],
+            help="Channel state")
+        cmd_channel.set_defaults(func=do_channel)
+
         args=ap.parse_args()
 
         from dsoconn import HTDSO
@@ -203,6 +356,6 @@ Output file name. Stdout is '-' (default).
         args.func(dso, args)
     except:
         raise
-    # except Exception, e:
-    #     print>>stderr, "ERROR:", e
+    # except Exception as e:
+    #     print("ERROR:", e, file=stderr)
     #     exit(2)
