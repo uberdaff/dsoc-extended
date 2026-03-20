@@ -1,52 +1,115 @@
-          dsoc                                         
-============================
+dsoc-extended
+=============
 
-'dsoc' - DSO _control - is a small command line utility to remotely control a Tekway/Hantek DSO
-of the DSO5x02(B) series. It is written in python.
+Fork of [dsoc](https://github.com/onnokort/dsoc) by Onno Kortmann, ported to
+Python 3 and extended with remote control features.
 
-Prerequisite python libraries: pyusb, numpy and PIL (to save screenshots) 
+`dsoc` - DSO *control* - is a command line utility to remotely control a
+Tekway/Hantek DSO of the DSO5x02(B) series through USB.
 
-The functionality is based on the reverse-engineered USB protocol which can be
-seen at
-[mikrocontroller.net](http://www.mikrocontroller.net/articles/Hantek_Protokoll)
-(German) and [elinux.org](http://elinux.org/Das_Oszi_Protocol) (English).
+Changes from upstream
+---------------------
 
-It can be invoked as it can be seen below (from running ./dsoc --help). Each
-sub-command has it's own help page which can be displayed by adding '--help'
-to the command line.
+- Ported from Python 2 to Python 3
+- Fixed USB endpoints for DSO5202B (OUT=0x02, IN=0x81)
+- Added RGB565 screenshot support (800x480, as used by DSO5202B)
+- Fixed bulk transfer receive for large data (screenshots, samples)
+- Added remote control via button press simulation (command 0x13)
 
-    usage: dsoc [-h] [--show-comm] [--verbose]
-		{ping,reset,cat,sh,screenshot,beep,samples,settings} ...
+Prerequisites
+-------------
 
-    Control a Tekway/HANTEK DSO through USB
+Python 3 with the following libraries:
 
-    positional arguments:
-      {ping,reset,cat,sh,screenshot,beep,samples,settings}
-	ping                Test two-way communication with scope. Return code of
-			    this command is zero when the scope is ready to accept
-			    data.
-	reset               Initialize/reset scope to power-on defaults.
-	cat                 Get a file from the scope's internal linux file
-			    system.
-	sh                  Execute a command on the scope. WARNING: This command
-			    is VERY DANGEROUS. It is easy to brick the scope and
-			    things like 'r m -rf /' are NOT filtered. You have
-			    been warned!
-	screenshot          Take a screenshot on the scope and save it into a
-			    file.
-	beep                Turn on the buzzer on the scope.
-	samples             Acquire sample data from the scope. Unless selected
-			    otherwise, the output will be two-column ASCII data,
-			    with the first column being time in second and the
-			    second ADC values in volts.
-	settings            Get a description of the current settings from the
-			    scope as a list of keys and values.
+- `pyusb` - USB communication
+- `numpy` - sample data scaling
+- `Pillow` (PIL) - screenshot image saving
 
-    optional arguments:
-      -h, --help            show this help message and exit
-      --show-comm, -c       Show communication with DSO on stderr.
-      --verbose, -v         Be verbose about the results of commands.
+Install with: `pip install pyusb numpy Pillow`
 
+A udev rule is provided in `99-hantek.rules` for the DSO5x02B (vendor 049f,
+product 505a). Copy it to `/etc/udev/rules.d/` and reload:
 
---
-Onno Kortmann <onno@gmx.net>
+    sudo cp 99-hantek.rules /etc/udev/rules.d/
+    sudo udevadm control --reload-rules
+
+USB protocol reference
+----------------------
+
+The functionality is based on the reverse-engineered USB protocol documented at:
+
+- [mikrocontroller.net](http://www.mikrocontroller.net/articles/Hantek_Protokoll) (German)
+- [elinux.org](http://elinux.org/Das_Oszi_Protocol) (English)
+
+Usage
+-----
+
+Each sub-command has its own help page: `./dsoc <command> --help`
+
+### Data acquisition and diagnostics
+
+    ./dsoc ping                          # Test communication
+    ./dsoc reset                         # Reset scope to defaults
+    ./dsoc settings                      # Show current scope settings
+    ./dsoc samples -n 1 -o data.txt      # Get samples from CH1
+    ./dsoc samples -n 1 -r               # Raw ADC values only
+    ./dsoc screenshot output.png         # Save screenshot
+
+### File system and shell access
+
+    ./dsoc cat /etc/hostname             # Read file from scope
+    ./dsoc sh ls /                       # Run command on scope (DANGEROUS!)
+
+### Vertical controls
+
+    ./dsoc set-vdiv 1.0                  # Set CH1 to 1V/div
+    ./dsoc set-vdiv -n 2 0.1            # Set CH2 to 100mV/div
+    ./dsoc position 10                   # Move CH1 up 10 steps
+    ./dsoc position -n 2 -5             # Move CH2 down 5 steps
+    ./dsoc reset-position                # Reset CH1 position to zero
+    ./dsoc coupling dc                   # Set CH1 coupling to DC
+    ./dsoc coupling -n 2 ac             # Set CH2 coupling to AC
+    ./dsoc channel on                    # Enable CH1
+    ./dsoc channel -n 2 off             # Disable CH2
+
+### Timebase
+
+    ./dsoc set-tdiv 0.001                # Set to 1ms/div
+    ./dsoc set-tdiv 0.00005              # Set to 50us/div
+
+### Trigger controls
+
+    ./dsoc trig-level -V 0.5             # Set trigger to 0.5V
+    ./dsoc trig-level 10                 # Adjust trigger up 10 steps
+    ./dsoc trig-50                       # Set trigger to 50% of signal
+    ./dsoc trig-mode auto                # Set trigger mode (auto/normal)
+    ./dsoc trig-source ch1               # Set source (ch1/ch2/ext/ext5/ac50)
+    ./dsoc trig-slope rising             # Set slope (rising/falling)
+    ./dsoc trig-coupling dc              # Set coupling (dc/ac/noise/hf/lf)
+
+### Miscellaneous
+
+    ./dsoc beep -d 200                   # Beep for 200ms
+
+### Global options
+
+    ./dsoc -c <command>                  # Show USB communication on stderr
+    ./dsoc -v <command>                  # Verbose output
+
+Limitations
+-----------
+
+- Remote control commands work by simulating button presses, so they take
+  some time to execute (200ms per button press).
+- Trigger menu commands (source, slope, mode, coupling) only work reliably
+  when the trigger type is set to **Edge**. Other trigger types change the
+  menu layout.
+- Trigger voltage setting has limited resolution due to integer step
+  quantization.
+
+V/div valid values: 2mV, 5mV, 10mV, 20mV, 50mV, 100mV, 200mV, 500mV,
+1V, 2V, 5V, 10V.
+
+---
+
+Original author: Onno Kortmann <onno@gmx.net>
